@@ -127,7 +127,7 @@ public class DishServiceImpl implements DishService {
             throw new DeletionNotAllowedException(MessageConstant.DISH_BE_RELATED_BY_SETMEAL);
         }
 
-        //删除菜品表中的菜品数据
+/*        //删除菜品表中的菜品数据---有缺点
         //这个地方是在业务层循环遍历一个个删除的。
         //缺点：这个地方循环遍历删除，写了2次sql性能比较差
         //解决：动态sql-foreach，只需要一条sql就可以实现批量删除。详情查看4.5
@@ -139,10 +139,99 @@ public class DishServiceImpl implements DishService {
             // 根据菜品的id去删除口味表：菜品表--》口味表 一对多，菜品的id 保存在口味表当中充当外键dish_id，
             //     删除口味表的sql条件为dish_id也就是这个传入的菜品id
             dishFlavorMapper.deleteByDishId(id);//后绪步骤实现
-        }
 
+        }*/
+
+        //删除菜品表中的菜品数据---优化：
+        //   上述代码每一次for循环遍历都会发生2条sql（删除菜品、删除口味），如果遍历的
+        //   次数比较多，那么发出的sql数量也很多，可能会引发性能一些方面的问题。
+        // 解决：减少sql语句的数量，使用动态sql批量删除 只需要1条sql就可以把需要删除的菜品删除掉
+        //      同样1条sql删除口味表的数据
+
+        //根据菜品id集合批量删除菜品数据
+        dishMapper.deleteByIds(ids);
+
+        //根据菜品id集合批量删除关联的口味数据
+        dishFlavorMapper.deleteByDishIds(ids);
 
     }
+
+    /**
+     * 根据id查询菜品和对应的口味数据
+     *
+     * @param id
+     * @return
+     */
+    @Override
+    public DishVO getByIdWithFlavor(Long id) {
+        //根据id查询菜品数据
+        Dish dish = dishMapper.getById(id); //删除的时候已经写过了，所以这里直接调用方法即可
+
+        //根据菜品id查询口味数据
+        //菜品表 口味表是一对多关系，菜品表的id保存在口味表当中充当外键为dish_id
+        List<DishFlavor> dishFlavors = dishFlavorMapper.getByDishId(id);//后绪步骤实现
+
+        //将查询到的数据封装到VO
+        DishVO dishVO = new DishVO();
+        //通过对象拷贝的方式，把查询到的菜品数据封装到dishVO类中，
+        //  注意：这个Dish类中没有categoryName分类名称属性，它不是必须的，所以这个地方拷不过来也没有关系
+        //       但是点击修改页面确实回显分类名称了，它是通过这个分类的id回显得，查询菜品数据回显给前端的是
+        //       分类的id，根据分类的id获取分类名称（接口已实现）进而来回显分类名称。
+        BeanUtils.copyProperties(dish, dishVO);
+        //通过set方法把口味数据封装到dishVO类中
+        dishVO.setFlavors(dishFlavors);
+
+        return dishVO;
+    }
+
+    /**
+     * 根据id修改菜品基本信息和对应的口味信息
+     *
+     * 思路分析：菜品表修改直接使用update语句即可，对于这个关联的口味表，
+     *         口味的修改比较复杂，因为它的情况有很多 有可能口味没写修改 有可能
+     *         口味是追加的 也有可能口味是删除了，那么这个地方我们有没有一种比较
+     *         简单的处理方式呢？？？
+     *         可以先把你当前这个菜品原先关联的口味数据全都统一删掉，然后在按照你当前
+     *         传过来的这个口味,重新再来插入一遍这个数据就可以了。
+     *
+     * @param dishDTO
+     */
+    @Override
+    @Transactional
+    public void updateWithFlavor(DishDTO dishDTO) {
+        //说明：DishDTO含有口味数据，当前只是修改菜品的基本信息，所以直接传递DishDTO不合适，
+        //     可以把DishDTO的数据拷贝到菜品的基本信息类Dish中更合适。
+        Dish dish = new Dish();
+        BeanUtils.copyProperties(dishDTO, dish);
+
+        //修改菜品表基本信息
+        dishMapper.update(dish);
+
+        //删除原有的口味数据
+        dishFlavorMapper.deleteByDishId(dishDTO.getId());
+
+        //重新插入口味数据
+        //口味数据通过实体类的对象集合属性封装的，所以需要先把集合中的数据取出来
+        List<DishFlavor> flavors = dishDTO.getFlavors();
+        //口味不是必须的有可能用户没有提交口味数据，所以需要判断一下
+        if (flavors != null && flavors.size() > 0) {
+            //用户确实提交的有口味数据，此时插入口味数据才有意义
+            //注意：口味数据的dishId前端并不能传递，它是菜单表插入数据后自动生成的主键值，也就是
+            //     口味表的关联外键dishId，有了菜单表这个主键值id，就需要为dishFlavor里面的每一个dishId（关联外键）
+            //     属性赋值，所以在批量插入数据之前需要遍历这个对象集合，为里面的每个对象DishFlavor的dishId赋上值
+            flavors.forEach(dishFlavor -> {
+                dishFlavor.setDishId(dishDTO.getId());
+            });
+            //向口味表插入n条数据 (新增菜品的时候已经写过了)
+            /*
+             * 口味数据flavors是一个对象类型的list集合来接收的，
+             * 不需要遍历这个集合一条一条的插入数据，因为sql支持批量插入
+             * 直接把这个集合对象传进去，通过动态sql标签foreach进行遍历获取。
+             * */
+            dishFlavorMapper.insertBatch(flavors);
+        }
+    }
+
 
 }
 
