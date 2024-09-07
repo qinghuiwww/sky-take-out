@@ -8,7 +8,9 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import java.io.ByteArrayInputStream;
-
+/**
+ * AliOssUtil类是一个包含文件上传功能的工具类。
+ */
 @Data
 @AllArgsConstructor
 @Slf4j
@@ -29,11 +31,14 @@ public class AliOssUtil {
     public String upload(byte[] bytes, String objectName) {
 
         // 创建OSSClient实例。
+        /*在upload方法中，首先创建了一个OSSClient实例，用于与OSS服务进行交互。*/
         OSS ossClient = new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
 
         try {
             // 创建PutObject请求。
+            /*然后，通过调用ossClient.putObject方法将文件上传到指定的存储桶中。*/
             ossClient.putObject(bucketName, objectName, new ByteArrayInputStream(bytes));
+            /*在上传过程中，通过捕获OSSException和ClientException来处理可能出现的异常情况，并输出相应的错误信息。*/
         } catch (OSSException oe) {
             System.out.println("Caught an OSSException, which means your request made it to OSS, "
                     + "but was rejected with an error response for some reason.");
@@ -53,6 +58,7 @@ public class AliOssUtil {
         }
 
         //文件访问路径规则 https://BucketName.Endpoint/ObjectName
+        /*最后，构建文件的访问路径，并使用日志记录上传文件的路径。*/
         StringBuilder stringBuilder = new StringBuilder("https://");
         stringBuilder
                 .append(bucketName)
