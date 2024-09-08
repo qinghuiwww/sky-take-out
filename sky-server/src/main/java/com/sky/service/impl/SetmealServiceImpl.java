@@ -6,9 +6,11 @@ import com.sky.constant.MessageConstant;
 import com.sky.constant.StatusConstant;
 import com.sky.dto.SetmealDTO;
 import com.sky.dto.SetmealPageQueryDTO;
+import com.sky.entity.Dish;
 import com.sky.entity.Setmeal;
 import com.sky.entity.SetmealDish;
 import com.sky.exception.DeletionNotAllowedException;
+import com.sky.exception.SetmealEnableFailedException;
 import com.sky.mapper.DishMapper;
 import com.sky.mapper.SetmealDishMapper;
 import com.sky.mapper.SetmealMapper;
@@ -180,6 +182,39 @@ public class SetmealServiceImpl implements SetmealService {
         //3、重新插入套餐和菜品的关联关系，操作setmeal_dish表，执行insert
         //   动态sql批量插入
         setmealDishMapper.insertBatch(setmealDishes);//新增套餐时已经实现了
+    }
+
+    /**
+     * 套餐起售、停售
+     * @param status
+     * @param id
+     */
+    @Override
+    public void startOrStop(Integer status, Long id) {
+        //起售套餐时，判断套餐内是否有停售菜品，有停售菜品提示"套餐内包含未启售菜品，无法启售"
+        if(status.equals(StatusConstant.ENABLE)){  //1  启用
+            //select a.* from dish a left join setmeal_dish b on a.id = b.dish_id where b.setmeal_id = ?
+            //左外连接查询，根据套餐id查询菜品以及对应的菜品套餐关系数据，a.*所以返回所有菜品数据
+            List<Dish> dishList = dishMapper.getBySetmealId(id);
+            if(dishList != null && dishList.size() > 0){//判断套餐中是否包含的有菜品，有才走if判断
+                dishList.forEach(dish -> {
+                    //套餐中包含菜品，如果这个菜品的状态为禁用，则抛出异常
+                    if(StatusConstant.DISABLE.equals(dish.getStatus())){
+                        throw new SetmealEnableFailedException(MessageConstant.SETMEAL_ENABLE_FAILED);
+                    }
+                });
+            }
+        }
+
+
+        //执行流程： 如果是起售套餐，套餐内有停售菜品，则抛出异常 不能起售
+        //         如果是起售套餐，套餐内没有停售菜品，if执行完后跳出继续向下执行，执行更新
+        //         如果是停售套餐，不走上面的if，直接进行更新状态。
+        Setmeal setmeal = Setmeal.builder()
+                .id(id)
+                .status(status)
+                .build();
+        setmealMapper.update(setmeal);//修改套餐时写了通用的修改sql
     }
 
 }
