@@ -1,12 +1,17 @@
 package com.sky.service.impl;
 
+import com.github.pagehelper.Page;
+import com.github.pagehelper.PageHelper;
 import com.sky.dto.SetmealDTO;
+import com.sky.dto.SetmealPageQueryDTO;
 import com.sky.entity.Setmeal;
 import com.sky.entity.SetmealDish;
 import com.sky.mapper.DishMapper;
 import com.sky.mapper.SetmealDishMapper;
 import com.sky.mapper.SetmealMapper;
+import com.sky.result.PageResult;
 import com.sky.service.SetmealService;
+import com.sky.vo.SetmealVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,4 +67,23 @@ public class SetmealServiceImpl implements SetmealService {
         //保存套餐和菜品的关联关系  动态sql批量插入
         setmealDishMapper.insertBatch(setmealDishes);
     }
+
+    /**
+     * 分页查询
+     * @param setmealPageQueryDTO
+     * @return
+     */
+    @Override
+    public PageResult pageQuery(SetmealPageQueryDTO setmealPageQueryDTO) {
+        int pageNum = setmealPageQueryDTO.getPage();
+        int pageSize = setmealPageQueryDTO.getPageSize();
+
+        //需要在查询功能之前开启分页功能：当前页的页码   每页显示的条数
+        PageHelper.startPage(pageNum, pageSize);
+        //这个方法有返回值为Page对象，里面保存的是分页之后的相关数据
+        Page<SetmealVO> page = setmealMapper.pageQuery(setmealPageQueryDTO);
+        //封装到PageResult中:总记录数  当前页数据集合
+        return new PageResult(page.getTotal(), page.getResult());
+    }
+
 }
