@@ -2,8 +2,10 @@ package com.sky.service.impl;
 
 import com.sky.entity.Orders;
 import com.sky.mapper.OrderMapper;
+import com.sky.mapper.UserMapper;
 import com.sky.service.ReportService;
 import com.sky.vo.TurnoverReportVO;
+import com.sky.vo.UserReportVO;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +24,8 @@ import java.util.Map;
 public class ReportServiceImpl implements ReportService {
     @Autowired
     private OrderMapper orderMapper;
+    @Autowired
+    private UserMapper userMapper;
 
     /**
      * 统计指定时间区间内的营业额数据：查询的是订单表，状态已经完成的订单
@@ -85,6 +89,69 @@ public class ReportServiceImpl implements ReportService {
         return trvo;
     }
 
+    @Override
+    public UserReportVO getUserStatistics(LocalDate begin, LocalDate end) {
+        //1.准备日期条件：和营业额功能相同，不在赘述。
+        List<LocalDate> dateList = new ArrayList<>();
+        dateList.add(begin);
+
+        while (!begin.equals(end)){
+            begin = begin.plusDays(1);
+            dateList.add(begin);
+        }
+        //同样需要把集合类型转化为字符串类型并用逗号分隔
+        String data = StringUtils.join(dateList, ",");
+
+        //2.准备每一天对应的用户数量：总用户数量和新增用户数量    查询的是用户表
+        List<Integer> newUserList = new ArrayList<>(); //此集合保存新增用户数量
+        List<Integer> totalUserList = new ArrayList<>(); //此集合保存总用户数量
+
+        /**
+         * 思路分析：
+         * 当天新增用户数量：只需要根据注册时间计算出当天的起始时间和结束时间作为查询条件，
+         *                就是当天新增的用户数量。
+         * 当天总用户数量：比如统计截止到4月1号这一天总的用户数量，意味着注册时间只要是在4月1号
+         *              之前（包含4月1号）这一天的数量就可以了。
+         * 没必要写2个sql，只需要写一个动态sql（动态的去拼接这2个连接条件）兼容这2个sql就可以了。
+         */
+        for (LocalDate date : dateList) {
+            LocalDateTime beginTime = LocalDateTime.of(date, LocalTime.MIN);//起始时间 包含年月日时分秒
+            LocalDateTime endTime = LocalDateTime.of(date, LocalTime.MAX);//结束时间
+
+            //新增用户数量 select count(id) from user where create_time > ? and create_time < ?
+            Integer newUser = getUserCount(beginTime, endTime);
+            //总用户数量 select count(id) from user where  create_time < ?
+            Integer totalUser = getUserCount(null, endTime);
+
+            newUserList.add(newUser);//把查询到的数据添加到集合中保存
+            totalUserList.add(totalUser);
+        }
+
+        //同样需要把集合类型转化为字符串类型并用逗号分隔
+        String newUser = StringUtils.join(newUserList, ",");
+        String totalUser = StringUtils.join(totalUserList, ",");
+
+        //封装vo返回结果
+        return UserReportVO.builder()
+                .dateList(data)
+                .newUserList(newUser)
+                .totalUserList(totalUser)
+                .build();
+    }
+
+    /**
+     * 根据时间区间统计用户数量
+     * @param beginTime
+     * @param endTime
+     * @return
+     */
+    private Integer getUserCount(LocalDateTime beginTime, LocalDateTime endTime) {
+        //封装sql查询的条件为map集合，因为设计的mapper层传递的参数是使用map来封装的
+        Map map = new HashMap();
+        map.put("begin",beginTime);
+        map.put("end", endTime);
+        return userMapper.countByMap(map);
+    }
 
 }
 
