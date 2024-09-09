@@ -1,5 +1,6 @@
 package com.sky.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
@@ -19,6 +20,7 @@ import com.sky.vo.OrderPaymentVO;
 import com.sky.vo.OrderStatisticsVO;
 import com.sky.vo.OrderSubmitVO;
 import com.sky.vo.OrderVO;
+import com.sky.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +30,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -50,6 +54,8 @@ public class OrderServiceImpl implements OrderService {
     private UserMapper userMapper;
     @Autowired
     private WeChatPayUtil weChatPayUtil;
+    @Autowired
+    private WebSocketServer webSocketServer;
 
     @Override
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
@@ -145,21 +151,22 @@ public class OrderServiceImpl implements OrderService {
         Long userId = BaseContext.getCurrentId();
         User user = userMapper.getById(userId);
 
-//        //2.调用微信支付接口工具类，生成预支付交易单（对应第5步）
-//        JSONObject jsonObject = weChatPayUtil.pay(
-//                ordersPaymentDTO.getOrderNumber(), //商户订单号
-//                new BigDecimal(0.01), //支付金额，单位 元
-//                "苍穹外卖订单", //商品描述
-//                user.getOpenid() //微信用户的openid
-//        );
-//
-//        if (jsonObject.getString("code") != null && jsonObject.getString("code").equals("ORDERPAID")) {
-//            throw new OrderBusinessException("该订单已支付");
-//        }
-//
-//        //3.转化为vo对象在返回给controller
-//        OrderPaymentVO vo = jsonObject.toJavaObject(OrderPaymentVO.class);
-//        vo.setPackageStr(jsonObject.getString("package"));
+/*        //2.调用微信支付接口工具类，生成预支付交易单（对应第5步）
+        JSONObject jsonObject = weChatPayUtil.pay(
+                ordersPaymentDTO.getOrderNumber(), //商户订单号
+                new BigDecimal(0.01), //支付金额，单位 元
+                "苍穹外卖订单", //商品描述
+                user.getOpenid() //微信用户的openid
+        );
+
+        if (jsonObject.getString("code") != null && jsonObject.getString("code").equals("ORDERPAID")) {
+            throw new OrderBusinessException("该订单已支付");
+        }
+
+        //3.转化为vo对象在返回给controller
+        OrderPaymentVO vo = jsonObject.toJavaObject(OrderPaymentVO.class);
+        vo.setPackageStr(jsonObject.getString("package"));*/
+
 
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("code","ORDERPAID");
@@ -171,16 +178,33 @@ public class OrderServiceImpl implements OrderService {
         //获得的是String类型，需要的是Long类型，所以需要进行转化
         String orderidS = ordersPaymentDTO.getOrderNumber();
         Long orderidL =Long.parseLong(orderidS);//获取订单号
+
         orderMapper.updateStatus(OrderStatus, OrderPaidStatus, check_out_time,orderidL );
+
+
+        // 根据订单号查询订单
+        Orders ordersDB = orderMapper.getByNumber(orderidS);
+        //通过webSocketServer向客户端浏览器推送消息
+        //要求推送的消息格式是json类型，并且包含3个字段（type、orderId、content）
+        Map map = new HashMap();
+        map.put("type", 1);//消息类型，1表示来单提醒
+        map.put("orderId", ordersDB.getId()); //订单的id
+        map.put("content", "订单号：" + orderidL);//订单号
+
+        //转化为json格式
+        String json = JSON.toJSONString(map);
+        //通过WebSocket实现来单提醒，向客户端浏览器推送消息(调用WebSocketServer类中群发的方法)
+        webSocketServer.sendToAllClient(json);
 
         return vo;
     }
 
+
     /**
      * 支付成功，修改订单状态
-     *
      * @param outTradeNo
      */
+    @Override
     public void paySuccess(String outTradeNo) {
 
         // 根据订单号查询订单
@@ -193,9 +217,21 @@ public class OrderServiceImpl implements OrderService {
                 .payStatus(Orders.PAID)
                 .checkoutTime(LocalDateTime.now())
                 .build();
-
         orderMapper.update(orders);
+
+        //通过webSocketServer向客户端浏览器推送消息
+        //要求推送的消息格式是json类型，并且包含3个字段（type、orderId、content）
+        Map map = new HashMap();
+        map.put("type", 1);//消息类型，1表示来单提醒
+        map.put("orderId", orders.getId()); //订单的id
+        map.put("content", "订单号：" + outTradeNo);//订单号
+
+        //转化为json格式
+        String json = JSON.toJSONString(map);
+        //通过WebSocket实现来单提醒，向客户端浏览器推送消息(调用WebSocketServer类中群发的方法)
+        webSocketServer.sendToAllClient(json);
     }
+
 
     /**
      * 用户端订单分页查询
