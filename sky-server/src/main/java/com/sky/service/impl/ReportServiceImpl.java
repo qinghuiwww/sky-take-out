@@ -1,10 +1,12 @@
 package com.sky.service.impl;
 
+import com.sky.dto.GoodsSalesDTO;
 import com.sky.entity.Orders;
 import com.sky.mapper.OrderMapper;
 import com.sky.mapper.UserMapper;
 import com.sky.service.ReportService;
 import com.sky.vo.OrderReportVO;
+import com.sky.vo.SalesTop10ReportVO;
 import com.sky.vo.TurnoverReportVO;
 import com.sky.vo.UserReportVO;
 import lombok.extern.slf4j.Slf4j;
@@ -262,6 +264,72 @@ public class ReportServiceImpl implements ReportService {
         return orderMapper.countByMap(map);
     }
 
+    /**
+     * 4)查询指定时间区间内的销量排名top10
+     * 思路分析：
+     *   查询订单详情表的number字段，该字段体现商品的销售份数。
+     *   用户下单就会产生订单数据和订单详情数据，如果用户下完单又取消掉我们并没有
+     *      真正的把这个数据给删除，而是把订单的状态给修改了，此时在统计数据这个
+     *      取消状态的订单就不能在算数了，我们要统计的实际上是完成状态的订单。
+     *   当前订单详情表不能体现出订单的状态，具体的订单状态还要查询订单表才可以看出来，
+     *      所以需要多表联合查询。
+     *
+     * sql：SELECT od.`name`,SUM(od.`number`) number FROM order_detail od ,orders o
+     *       WHERE od.`order_id`=o.`id`AND STATUS = 5 AND o.`order_time`>'2022-10-1' AND o.`order_time`<'2024-10-31'
+     *       GROUP BY od.`name`
+     *       ORDER BY number DESC
+     *       LIMIT 0,10;
+     * sql解释：
+     *  多表查询商品的名称（name字段）以及销量（number字段，数据有可能有多条所以需要求和）
+     *    查询条件：
+     *       订单状态：为5已完成
+     *       下单时间：销量排名统计的实际上是某个时间区间内的销量排名，所以还需要根据下单时间去卡。
+     *    分组：统计销量的时候要根据商品去统计，也就是说相同的商品这些number要累加在一起，所以说要进行分组
+     *    排序：按照降序来排
+     *    销量前10：统计前10条数据，即分页现显示前10条数据。
+     *
+     *  sql查询的结果封装到GoodsSalesDTO实体类中：商品名称  销量。
+     *
+     * */
+    @Override
+    public SalesTop10ReportVO getSalesTop10(LocalDate begin, LocalDate end){
+        //mapper传递的参数是LocalDateTime类型，impl层传递的参数是LocalDate所以需要进行转化
+        //   当前日期的起始时间      结束日期最后的时间点
+        LocalDateTime beginTime = LocalDateTime.of(begin, LocalTime.MIN);
+        LocalDateTime endTime = LocalDateTime.of(end, LocalTime.MAX);
+        List<GoodsSalesDTO> goodsSalesDTOList = orderMapper.getSalesTop10(beginTime, endTime);
+
+        /**
+         * 获取的是GoodsSalesDTO类型的集合数据：String name商品名称     Integer number销量
+         * 需要获得是vo对象类型： String nameList 商品名称列表   以逗号分隔，例如：鱼香肉丝,宫保鸡丁,水煮鱼
+         *                    String numberList销量列表     以逗号分隔，例如：260,215,200
+         * 所以需要进行转化：取出GoodsSalesDTO集合中所有的name属性取出来拼接到一起，并且以逗号分隔
+         *                                             （恰好对应vo中的nameList）
+         *               取出GoodsSalesDTO集合中所有的number属性取出来拼接到一起，并且以逗号分隔
+         *                                             （恰好对应vo中的numberList）
+         *   方式一：通过 stream流的方式简写
+         *   String nameList = StringUtils.join(goodsSalesDTOList.stream().map(GoodsSalesDTO::getName).collect(Collectors.toList()),",");
+         *   String numberList = StringUtils.join(goodsSalesDTOList.stream().map(GoodsSalesDTO::getNumber).collect(Collectors.toList()),",");
+         */
+        List<String> nameList1 = new ArrayList<>(); //商品名称
+        List<Integer> numberList1 = new ArrayList<>(); //销量
+        for (GoodsSalesDTO goodsSalesDTO : goodsSalesDTOList) {//方式二：普通for循环
+            nameList1.add(goodsSalesDTO.getName());
+            numberList1.add(goodsSalesDTO.getNumber());
+        }
+
+        //获取的是list集合类型，需要转化为字符串并以逗号分隔
+        //把list集合的每个元素取出来并且以逗号分隔，最终拼成一个字符串
+        String nameList = StringUtils.join(nameList1, ",");
+        String numberList = StringUtils.join(numberList1, ",");
+
+
+        //封装vo对象并返回
+        return SalesTop10ReportVO.builder()
+                .nameList(nameList)
+                .numberList(numberList)
+                .build();
+    }
 
 }
 
